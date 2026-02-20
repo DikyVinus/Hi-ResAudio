@@ -1,37 +1,40 @@
-[ ! "$MODPATH" ] && MODPATH=${0%/*}
+cat <<'EOF' > copy.sh
+#!/system/bin/sh
+
+[ -z "$MODPATH" ] && MODPATH=${0%/*}
 
 copy_policy_file() {
-  mkdir -p `dirname "$2"`
+  mkdir -p "$(dirname "$2")"
   cp -af "$1" "$2"
 }
 
-AUD="audio_policy.conf -o -name audio_policy_configuration.xml"
-rm -f `find $MODPATH -type f -name $AUD`
-FILES=$(find /vendor -type f -name $AUD)
-for FILE in $FILES; do
-  if [ -L $MODPATH/system/vendor ]\
-  && [ -d $MODPATH/vendor ]; then
-    MODFILE=$MODPATH$FILE
-  else
-    MODFILE=$MODPATH/system$FILE
-  fi
-  copy_policy_file $FILE $MODFILE
+# canonical path = /system/vendor/*
+AUD='audio_policy.conf -o -name audio_policy_configuration.xml'
+
+# remove old copies
+find "$MODPATH/system/vendor" -type f \( -name audio_policy.conf -o -name audio_policy_configuration.xml \) -delete 2>/dev/null
+
+# copy from real vendor → module mirror
+find /vendor -type f \( -name audio_policy.conf -o -name audio_policy_configuration.xml \) | while read -r FILE; do
+  MODFILE="$MODPATH/system$FILE"
+  copy_policy_file "$FILE" "$MODFILE"
 done
 
+
 copy_param_file() {
-  mkdir -p `dirname "$2"`
+  mkdir -p "$(dirname "$2")"
   cp -af "$1" "$2"
 }
 
 PARAM="Playback_ParamTreeView.xml"
-rm -f `find $MODPATH -type f -name $PARAM`
-FILEP=$(find /vendor -type f -name $PARAM)
-for FILE in $FILEP; do
-  if [ -L $MODPATH/system/vendor ]\
-  && [ -d $MODPATH/vendor/etc ]; then
-    MODFILE=$MODPATH$FILE
-  else
-    MODFILE=$MODPATH/system$FILE
-  fi
-  copy_param_file $FILE $MODFILE
+
+# remove old param copies
+find "$MODPATH/system/vendor" -type f -name "$PARAM" -delete 2>/dev/null
+
+# copy params into canonical mirror
+find /vendor -type f -name "$PARAM" | while read -r FILE; do
+  MODFILE="$MODPATH/system$FILE"
+  copy_param_file "$FILE" "$MODFILE"
 done
+
+EOF
