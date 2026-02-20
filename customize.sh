@@ -1,8 +1,12 @@
+#!/system/bin/sh
+exec 2>/dev/null
 [ ! "$MODPATH" ] && MODPATH=${0%/*}
 [ ! -d $MODPATH/system/vendor/etc ] && mkdir -p $MODPATH/system/vendor/etc
 
 . $MODPATH/copy.sh
-
+grep() {
+    timeout 5s command grep "$@"
+}
 MODPOL=$(find $MODPATH -type f -name audio_policy.conf)
 MODCONF=$(find $MODPATH -type f -name audio_policy_configuration.xml)
 MODPARAM=$(find $MODPATH -type f -name Playback_ParamTreeView.xml)
@@ -466,64 +470,63 @@ fi
 
 channels_policy(){
     ui_print ""
-    ui_print " • Checking Channels_Policy status:"
-    CHP=$(grep -A 3 'outputs' $MODPOL | sed -E 's/.*channel_masks ([^ ]+).*/\1/' | sed '/sampling_rates/d' | sed '/outputs/d' | sed '/primary/d' | head -n 1)
-    if [ $CHP == "AUDIO_CHANNEL_OUT_STEREO" ]; then
-        sleep 1
-        ui_print "   status: $CHP"
-        sleep 1
-        ui_print " - Enabling custom channels (Policy)"
-        sed -i '/outputs {/,/}/ { /primary {/,/}/ s/channel_masks AUDIO_CHANNEL_OUT_STEREO/channel_masks AUDIO_CHANNEL_OUT_ALL/ }' $MODPOL
-        sed -i '/outputs {/,/}/ {/gain_1 {/,/}/ s/channel_mask AUDIO_CHANNEL_OUT_STEREO/channel_mask AUDIO_CHANNEL_OUT_ALL/ }' $MODPOL
-        sleep 2
-    else
-        ui_print "   status: $CHP"
-        ui_print "   Audio_Policy is not use STEREO by default"
-        sleep 1
-    fi
-    VLDP=$(grep -A 3 'outputs' $MODPOL | sed -E 's/.*channel_masks ([^ ]+).*/\1/' | sed '/sampling_rates/d' | sed '/outputs/d' | sed '/primary/d' | head -n 1)
-    VLDG=$(sed -n '/outputs {/,/}/ { /primary {/,/}/p }' $MODPOL | grep -A 2 'gain_1' | sed -E 's/.*channel_mask ([^ ]+).*/\1/' | sed '/mode/d' | sed '/gain_1/d' | head -n 1)
-    if [ $VLDP == "AUDIO_CHANNEL_OUT_ALL" ]; then
-        if [ $VLDG == "AUDIO_CHANNEL_OUT_ALL" ]; then
-            ui_print "   status_output: $VLDP"
-            ui_print "   status_gain: $VLDG"
-            sleep 1
-            ui_print "   success, enabling custom channels!"
-        else
-            ui_print "   status_gain $VLDG"
-            ui_print "   failed to set custom channels"
-        fi
-    else
-        ui_print "   status_output: $VLDP"
-        ui_print "   failed to set custom channels!"
-    fi
+ui_print " • Checking Channels_Policy status:"
+
+if [ -n "$MODPOL" ] && [ -f "$MODPOL" ]; then
+    CHP="$(grep -A 3 'outputs' "$MODPOL" 2>/dev/null | sed -E 's/.*channel_masks ([^ ]+).*/\1/' | sed '/sampling_rates/d;/outputs/d;/primary/d' | head -n1)"
+else
+    CHP=""
+fi
+
+if [ "$CHP" = "AUDIO_CHANNEL_OUT_STEREO" ]; then
+    ui_print "   status: $CHP"
+    ui_print " - Enabling custom channels (Policy)"
+    sed -i '/outputs {/,/}/ { /primary {/,/}/ s/channel_masks AUDIO_CHANNEL_OUT_STEREO/channel_masks AUDIO_CHANNEL_OUT_ALL/ }' "$MODPOL" 2>/dev/null
+    sed -i '/outputs {/,/}/ {/gain_1 {/,/}/ s/channel_mask AUDIO_CHANNEL_OUT_STEREO/channel_mask AUDIO_CHANNEL_OUT_ALL/ }' "$MODPOL" 2>/dev/null
+else
+    ui_print "   status: ${CHP:-unknown}"
+    ui_print "   Audio_Policy is not use STEREO by default"
+fi
+
+# verify result safely
+if [ -n "$MODPOL" ] && [ -f "$MODPOL" ]; then
+    VLDP="$(grep -A 3 'outputs' "$MODPOL" 2>/dev/null | sed -E 's/.*channel_masks ([^ ]+).*/\1/' | sed '/sampling_rates/d;/outputs/d;/primary/d' | head -n1)"
+    VLDG="$(sed -n '/outputs {/,/}/ { /primary {/,/}/p }' "$MODPOL" 2>/dev/null | grep -A 2 'gain_1' | sed -E 's/.*channel_mask ([^ ]+).*/\1/' | sed '/mode/d;/gain_1/d' | head -n1)"
+else
+    VLDP=""
+    VLDG=""
+fi
+
+if [ "$VLDP" = "AUDIO_CHANNEL_OUT_ALL" ] && [ "$VLDG" = "AUDIO_CHANNEL_OUT_ALL" ]; then
+    ui_print "   status_output: $VLDP"
+    ui_print "   status_gain: $VLDG"
+    ui_print "   success, enabling custom channels!"
+else
+    ui_print "   status_output: ${VLDP:-unknown}"
+    ui_print "   status_gain: ${VLDG:-unknown}"
+    ui_print "   failed to set custom channels!"
+fi
 }
 
 ui_print ""
 ui_print " • Checking for Custom Channels_Policy:"
-CHPP=$(grep -A 3 'outputs' $MODPOL | sed -E 's/.*channel_masks ([^ ]+).*/\1/' | sed '/sampling_rates/d' | sed '/outputs/d' | sed '/primary/d' | head -n 1)
-CHPG=$(sed -n '/outputs {/,/}/ { /primary {/,/}/p }' $MODPOL | grep -A 2 'gain_1' | sed -E 's/.*channel_mask ([^ ]+).*/\1/' | sed '/mode/d' | sed '/gain_1/d' | head -n 1)
-if [ $CHPP == "AUDIO_CHANNEL_OUT_STEREO" ]; then
-    if [ $CHPG == "AUDIO_CHANNEL_OUT_STEREO" ]; then
-        sleep 1
-        ui_print "   custom channels not configure!"
-        sleep 1
-        ui_print "   patching custom channels in Policy.."
-        channels_policy
-        ui_print ""
-        sleep 1
-    else
-        ui_print "   status_gain: $CHPG"
-        ui_print "   failed, can't find the channels_policy!"
-        ui_print ""
-    fi
-else
-    sleep 2
-    ui_print "   status_output: $CHPP"
-    sleep 1
-    ui_print "   failed, can't find channels_policy!"
-    ui_print ""
+
+CHPP=""
+CHPG=""
+
+if [ -n "$MODPOL" ] && [ -f "$MODPOL" ]; then
+    CHPP="$(grep -m1 -A3 'outputs' "$MODPOL" 2>/dev/null | sed -E 's/.*channel_masks ([^ ]+).*/\1/' | sed '/sampling_rates/d;/outputs/d;/primary/d' | head -n1)"
+
+    CHPG="$(sed -n '/outputs {/,/}/ { /primary {/,/}/p }' "$MODPOL" 2>/dev/null | grep -m1 -A2 'gain_1' | sed -E 's/.*channel_mask ([^ ]+).*/\1/' | sed '/mode/d;/gain_1/d' | head -n1)"
 fi
+
+if [ "$CHPP" = "AUDIO_CHANNEL_OUT_STEREO" ] && [ "$CHPG" = "AUDIO_CHANNEL_OUT_STEREO" ]; then
+    ui_print "   custom channels not configure!"
+    channels_policy
+else
+    ui_print "   status_output: ${CHPP:-unknown}"
+fi
+
 
 mainspeaker() {
     ui_print " - Configure (R) Speaker.."
